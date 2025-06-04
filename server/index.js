@@ -2,185 +2,158 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { 
+  // Database functions are now primarily used by gameService.js
+  // We still need initDb, getJackpot, and getOrCreateDailyTargetPixel.
   initDb, 
-  getJackpot, 
-  updateJackpot, 
-  resetJackpot, 
-  logJackpotHistory, 
-  getOrCreateDailyTargetPixel,
-  forceNewDailyTarget
+  getJackpot,
+  getOrCreateDailyTargetPixel, // Re-add this import
+  // No longer directly used here:
+  // db, updateJackpot, resetJackpot, logJackpotHistory,
+  // forceNewDailyTarget, recordClickAttempt, hasAttemptedToday
 } from './database.js';
 import cors from 'cors';
-import { v4 as uuidv4 } from 'uuid';
+import { handleClick, performAutoIncrement } from './services/gameService.js'; // Import gameService functions
 
-// Initialize the database
-initDb();
+import path, { dirname as pathDirname } from 'path'; // For test DB path
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = pathDirname(__filename);
+
+// Determine DB path based on NODE_ENV
+const TEST_DB_DIR = path.join(__dirname, 'tests', 'test_data'); // Consistent with unit tests
+const TEST_DB_PATH = path.join(TEST_DB_DIR, 'server_integration_test_database.db');
+const PROD_DB_PATH = undefined; // Uses default path in database.js
+
+const dbPathToUse = process.env.NODE_ENV === 'test' ? TEST_DB_PATH : PROD_DB_PATH;
+
+// REMOVED: const dbPathToUse = process.env.NODE_ENV === 'test' ? TEST_DB_PATH : PROD_DB_PATH;
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
-
-// Set up heartbeat mechanism
-const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+// Global set for connected clients, accessible by health check
 let connectedClients = new Set();
 
-io.on('connection', async (socket) => {
-  console.log(`Client connected: ${socket.id}`);
-  connectedClients.add(socket.id);
-  
-  // Get the current target pixel for today
-  const targetPixel = await getOrCreateDailyTargetPixel();
-  console.log(`Current target for ${targetPixel.date}: (${targetPixel.x}, ${targetPixel.y})`);
-  
-  // Send current jackpot value on connection
-  getJackpot().then(jackpot => {
-    socket.emit('jackpot_update', { amount: jackpot.current_amount });
+// Constants for intervals
+const HEARTBEAT_INTERVAL = 30000;
+const AUTO_INCREMENT_INTERVAL = 300000;
+
+async function configureAndStartServer(portToListenOn) {
+  // Initialize DB for this server instance. initDb sets a module-global 'db' in database.js
+  await initDb(dbPathToUse);
+
+  const httpServerInstance = createServer(app);
+  const ioInstance = new Server(httpServerInstance, {
+    cors: { origin: "*", methods: ["GET", "POST"] }
   });
 
-  // Handle clicks - server calculates the distance
-  socket.on('click', async (data) => {
-    try {
-      const userId = socket.id;
+  console.log('Database initialized, setting up Socket.IO handlers and intervals for this server instance.');
+
+  ioInstance.on('connection', async (socket) => {
+    console.log(`Client connected: ${socket.id} to server on port ${portToListenOn}`);
+    connectedClients.add(socket.id);
+
+    const targetPixel = getOrCreateDailyTargetPixel();
+    // console.log(`Current target for ${targetPixel.date}: (${targetPixel.x}, ${targetPixel.y})`);
+
+    // Send initial jackpot state
+    const initialJackpot = getJackpot(); // Still needed for initial emit
+    socket.emit('jackpot_update', { amount: initialJackpot.current_amount });
+
+    socket.on('click', (data) => { // Removed async as handleClick is now synchronous
+      const userIp = socket.handshake.address;
+      // const userId = socket.id;
+
+      if (data === null || typeof data.x !== 'number' || typeof data.y !== 'number') {
+          socket.emit('error', { message: 'Invalid click data. Coordinates x and y are required.' });
+          return;
+      }
       const { x, y } = data;
-      
-      // Validate inputs
-      if (typeof x !== 'number' || typeof y !== 'number' || x < 0 || x > 999 || y < 0 || y > 999) {
-        socket.emit('error', { message: 'Invalid coordinates' });
+
+      if (
+        !Number.isInteger(x) || !Number.isInteger(y) ||
+        x < 0 || x > 999 || y < 0 || y > 999
+      ) {
+        socket.emit('error', { message: 'Invalid coordinates. Coordinates must be integers between 0 and 999.' });
         return;
       }
-      
-      // Calculate distance to target
-      const distance = Math.sqrt(Math.pow(targetPixel.x - x, 2) + Math.pow(targetPixel.y - y, 2));
-      const roundedDistance = Math.round(distance * 1000) / 1000;
-      
-      // Get current jackpot value
-      const currentJackpot = await getJackpot();
-      
-      // Check if it's a direct hit
-      if (roundedDistance === 0) {
-        // Winner! Reset the jackpot
-        const baseAmount = 100.00;
-        const updated = await resetJackpot(baseAmount, userId);
-        
-        if (updated) {
-          // Log the jackpot win
-          await logJackpotHistory(
-            currentJackpot.current_amount,
-            baseAmount,
-            'JACKPOT_WIN',
-            userId
-          );
-          
-          // Generate a new target for tomorrow
-          const newTarget = await forceNewDailyTarget();
-          
-          // Send result to client (including the target location)
+
+      try {
+        const result = handleClick(x, y, userIp); // Call synchronous gameService function
+
+        if (result.status === 'success') {
           socket.emit('click_result', { 
-            distance: roundedDistance,
-            targetX: targetPixel.x,
-            targetY: targetPixel.y,
-            success: true
+            distance: result.distance,
+            targetX: result.targetX,
+            targetY: result.targetY,
+            success: result.type === 'win'
           });
-          
-          // Broadcast jackpot reset to all clients
-          io.emit('jackpot_update', { amount: baseAmount });
-          io.emit('jackpot_won', { 
-            amount: currentJackpot.current_amount,
-            timestamp: new Date().toISOString()
-          });
+
+          if (result.type === 'win') {
+            ioInstance.emit('jackpot_update', { amount: result.newBaseJackpotAmount });
+            ioInstance.emit('jackpot_won', { amount: result.wonAmount, timestamp: new Date().toISOString() });
+          } else { // miss
+            ioInstance.emit('jackpot_update', { amount: result.newJackpotAmount });
+          }
+        } else { // result.status === 'error'
+          socket.emit('error', { message: result.message });
         }
+      } catch (error) { // Catch unexpected errors from gameService or other issues
+        console.error(`Critical error processing click on port ${portToListenOn} for user ${userIp}:`, error);
+        socket.emit('error', { message: 'An unexpected server error occurred.' });
+      }
+    });
+
+    const heartbeatIntervalId = setInterval(() => {
+      socket.emit('heartbeat');
+    }, HEARTBEAT_INTERVAL);
+
+    socket.on('heartbeat_response', () => {
+      // console.log(`Heartbeat received from ${socket.id}`);
+    });
+
+    socket.on('disconnect', () => {
+      console.log(`Client disconnected: ${socket.id} from server on port ${portToListenOn}`);
+      connectedClients.delete(socket.id);
+      clearInterval(heartbeatIntervalId);
+    });
+  });
+
+  const autoIncrementTimer = setInterval(async () => {
+    try {
+      const result = performAutoIncrement(); // Call the gameService
+      if (result.status === 'success') {
+        ioInstance.emit('jackpot_update', { amount: result.newJackpotAmount });
       } else {
-        // Missed the target - increment jackpot
-        const newAmount = parseFloat(currentJackpot.current_amount) + 0.001;
-        const roundedAmount = Math.round(newAmount * 1000) / 1000;
-        
-        const updated = await updateJackpot(roundedAmount, userId);
-        
-        if (updated) {
-          // Log the change
-          await logJackpotHistory(
-            currentJackpot.current_amount,
-            roundedAmount,
-            'INCREMENT',
-            userId
-          );
-          
-          // Send result to client (including the target location)
-          socket.emit('click_result', { 
-            distance: roundedDistance,
-            targetX: targetPixel.x,
-            targetY: targetPixel.y,
-            success: false
-          });
-          
-          // Broadcast to all clients
-          io.emit('jackpot_update', { amount: roundedAmount });
-        }
+        console.error(`Auto increment failed on port ${portToListenOn}:`, result.message);
       }
     } catch (error) {
-      console.error('Error processing click:', error);
-      socket.emit('error', { message: 'Failed to process click' });
+      console.error(`Critical error in auto increment on port ${portToListenOn}:`, error);
     }
+  }, AUTO_INCREMENT_INTERVAL);
+
+  return new Promise((resolve, reject) => {
+    httpServerInstance.listen(portToListenOn, () => {
+      console.log(`Server configured and running on port ${portToListenOn}`);
+      // Return the interval ID so it can be cleared in tests
+      resolve({ httpServer: httpServerInstance, io: ioInstance, app, autoIncrementIntervalId: autoIncrementTimer });
+    });
+    httpServerInstance.on('error', reject);
   });
+}
 
-  // Heartbeat to verify connection status
-  const heartbeatInterval = setInterval(() => {
-    socket.emit('heartbeat');
-  }, HEARTBEAT_INTERVAL);
+export { configureAndStartServer, app }; // app is global, configureAndStartServer is the main way to get a server
 
-  socket.on('heartbeat_response', () => {
-    // Client is still connected
-    console.log(`Heartbeat received from ${socket.id}`);
-  });
 
-  // Disconnect handling
-  socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
-    connectedClients.delete(socket.id);
-    clearInterval(heartbeatInterval);
-  });
-});
-
-// Periodic jackpot increment (micro-increments)
-const AUTO_INCREMENT_INTERVAL = 300000; // 5 minutes
-setInterval(async () => {
+// API endpoints (can be defined once as they use the global 'app')
+app.get('/api/jackpot', (req, res) => { // No async needed
   try {
-    const currentJackpot = await getJackpot();
-    const newAmount = parseFloat(currentJackpot.current_amount) + 0.01;
-    const roundedAmount = Math.round(newAmount * 1000) / 1000;
-    
-    const updated = await updateJackpot(roundedAmount, 'system');
-    
-    if (updated) {
-      await logJackpotHistory(
-        currentJackpot.current_amount,
-        roundedAmount,
-        'AUTO_INCREMENT',
-        'system'
-      );
-      
-      io.emit('jackpot_update', { amount: roundedAmount });
-    }
-  } catch (error) {
-    console.error('Error in auto increment:', error);
-  }
-}, AUTO_INCREMENT_INTERVAL);
-
-// API endpoints
-app.get('/api/jackpot', async (req, res) => {
-  try {
-    const jackpot = await getJackpot();
+    const jackpot = getJackpot(); // Synchronous
     res.json({ amount: jackpot.current_amount });
   } catch (error) {
-    console.error('Error fetching jackpot:', error);
+    console.error('Error fetching jackpot via API:', error);
     res.status(500).json({ error: 'Failed to fetch jackpot' });
   }
 });
@@ -199,9 +172,12 @@ app.get('/', (req, res) => {
   res.send('The Click API Server is running');
 });
 
-// Start server
-const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Active connections: ${connectedClients.size}`);
-});
+// Start server only if not in test environment or if this file is run directly
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 3001;
+  // The main dbInitializationPromise for production is implicitly handled by configureAndStartServer
+  configureAndStartServer(PORT).catch(err => {
+    console.error("Failed to start server for production:", err);
+    process.exit(1);
+  });
+}
