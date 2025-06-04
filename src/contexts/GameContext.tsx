@@ -26,6 +26,7 @@ interface GameContextType {
   dayNumber: number;
   registerClick: (x: number, y: number) => void;
   devMode: boolean;
+  isConnected: boolean; // Added isConnected
 }
 
 export const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -37,6 +38,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [lastClick, setLastClick] = useState<Click | null>(null);
   const [hasClicked, setHasClicked] = useState(false);
   const [devMode, setDevMode] = useState(false);
+  const [isConnected, setIsConnected] = useState(true); // Added isConnected state
 
   // Initialize WebSocket connection and set devMode
   useEffect(() => {
@@ -92,8 +94,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
     // Monitor connection status
     onConnectionChange((status) => {
       console.log(`Connection status: ${status ? 'connected' : 'disconnected'}`);
+      setIsConnected(status); // Update isConnected state
     });
-  }, [lastClick]);
+  }, [lastClick]); // lastClick is not directly related but this useEffect hook also handles other socket events
 
   // Effect to check for day change and update dayNumber
   useEffect(() => {
@@ -138,7 +141,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     
     // Send click to server for processing
     socketRegisterClick(x, y);
-  }, []);
+  }, [devMode]); // Added devMode to dependency array
 
   const value = {
     jackpot,
@@ -150,6 +153,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     dayNumber,
     registerClick,
     devMode,
+    isConnected, // Expose isConnected
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

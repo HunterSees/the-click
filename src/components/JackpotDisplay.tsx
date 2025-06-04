@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo, memo } from 'react'; // Import useMemo and memo
+import { useMemo, memo } from 'react'; // Removed useState, useEffect
 import { useGameContext } from '../contexts/GameContext';
-import { onJackpotUpdate, onConnectionChange } from '../services/socketService';
+// Removed onJackpotUpdate, onConnectionChange imports from socketService
 
 const JackpotDisplayComponent = () => { // Renamed for memo
-  const { jackpot, setJackpot } = useGameContext();
-  const [isConnected, setIsConnected] = useState(true); // isConnected is not used, consider removing if not planned.
+  const { jackpot, isConnected } = useGameContext(); // Get isConnected from context, removed setJackpot
   
   const [integerPart, decimalPart] = useMemo(() => {
     // Format with commas and 2 decimal places
@@ -65,19 +64,6 @@ const JackpotDisplayComponent = () => { // Renamed for memo
     return [result, decPart];
   }, [jackpot]);
 
-  // WebSocket updates for jackpot
-  useEffect(() => {
-    // Register for jackpot updates
-    onJackpotUpdate((amount) => {
-      setJackpot(amount);
-    });
-    
-    // Register for connection status updates
-    onConnectionChange((status) => {
-      setIsConnected(status);
-    });
-  }, [setJackpot]);
-
   // Split the formatted jackpot into individual digits for display
   const jackpotDigits = integerPart.split('');
 
@@ -104,6 +90,11 @@ const JackpotDisplayComponent = () => { // Renamed for memo
           ))}
         </div>
       </div>
+      {!isConnected && (
+        <div className="mt-2 text-xs text-red-500 animate-pulse">
+          Connecting...
+        </div>
+      )}
     </div>
   );
 };

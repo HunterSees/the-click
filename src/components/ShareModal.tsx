@@ -24,6 +24,7 @@ interface ShareModalProps {
 
   showPlatformOptions: boolean;
   setShowPlatformOptions: (value: boolean) => void;
+  isGenerating: boolean; // New prop for loading state
 }
 
 const ShareModal = ({
@@ -35,6 +36,7 @@ const ShareModal = ({
   // setCopySuccess, // Assuming parent ClickFeedback manages this for simplicity now
   handleShare,
   downloadImage, // Pass this down
+  isGenerating, // Destructure new prop
   shareToTwitter,
   shareToFacebook,
   shareToLinkedIn,
@@ -130,13 +132,23 @@ const ShareModal = ({
           </button>
         </div>
 
-        {shareImageUrl && (
+        {isGenerating ? (
+          <div className="mb-4 text-center text-gray-400">
+            <p>Generating image...</p>
+            {/* Optional: Add a spinner SVG or animation here */}
+          </div>
+        ) : shareImageUrl ? (
           <div className="mb-4 flex justify-center">
             <img
               src={shareImageUrl}
               alt="Your click result"
               className="rounded-lg border border-slate-700 max-w-full h-auto"
             />
+          </div>
+        ) : (
+          // Optional: Placeholder or error if not generating and no URL (e.g., generation failed)
+          <div className="mb-4 text-center text-gray-500">
+            <p>Image not available.</p>
           </div>
         )}
 

@@ -21,7 +21,8 @@ const ClickFeedbackComponent = () => {
     shareImageUrl,
     shareImageBlob,
     generateImage,
-    clearImageData
+    clearImageData,
+    isGenerating // Get isGenerating from the hook
   } = useShareableImage({ lastClick, dayNumber, jackpot });
 
   // Generate share text for fallback and clipboard
@@ -265,6 +266,7 @@ const ClickFeedbackComponent = () => {
             shareToSlack={shareToSlack}
             showPlatformOptions={showPlatformOptions}
             setShowPlatformOptions={setShowPlatformOptions}
+            isGenerating={isGenerating} // Pass isGenerating to ShareModal
           />
         </Suspense>
       )}

@@ -26,9 +26,11 @@ const mockGameContextValue: GameContextType = {
   dayNumber: 1, // Example day number
   registerClick: vi.fn(),
   devMode: false,
+  isConnected: true, // Added isConnected
 };
 
-const renderWithContext = (ui: React.ReactElement, contextValue: GameContextType) => {
+const renderWithContext = (ui: React.ReactElement, contextValue?: Partial<GameContextType>) => { // Allow partial for easier overrides
+  const fullContextValue = { ...mockGameContextValue, ...contextValue };
   return render(
     <GameContext.Provider value={contextValue}>
       {ui}
@@ -77,14 +79,16 @@ describe('JackpotDisplay', () => {
     expect(digits[8].textContent).toBe('5');
   });
 
-  it('calls onJackpotUpdate and onConnectionChange on mount', () => {
-    // Need to read JackpotDisplay.tsx to confirm its useEffect behavior
-    // Assuming it does call these based on the provided test.
-    // If JackpotDisplay itself doesn't call them, but relies on GameContext to provide jackpot,
-    // then this test might be more about GameProvider's behavior.
-    // For now, proceed with the test as given.
-    renderWithContext(<JackpotDisplay />, mockGameContextValue);
-    expect(socketService.onJackpotUpdate).toHaveBeenCalled();
-    // expect(socketService.onConnectionChange).toHaveBeenCalled(); // JackpotDisplay does not seem to call this directly
+  // Removed obsolete test for onJackpotUpdate/onConnectionChange calls from JackpotDisplay
+
+  it('does not display "Connecting..." message when isConnected is true', () => {
+    renderWithContext(<JackpotDisplay />, { ...mockGameContextValue, isConnected: true });
+    expect(screen.queryByText('Connecting...')).toBeNull();
+  });
+
+  it('displays "Connecting..." message when isConnected is false', () => {
+    renderWithContext(<JackpotDisplay />, { ...mockGameContextValue, isConnected: false });
+    expect(screen.getByText('Connecting...')).toBeInTheDocument();
+    expect(screen.getByText('Connecting...')).toHaveClass('animate-pulse');
   });
 });

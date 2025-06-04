@@ -11,6 +11,7 @@ export const useShareableImage = ({ lastClick, dayNumber, jackpot }: UseShareabl
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [shareImageUrl, setShareImageUrl] = useState<string | null>(null);
   const [shareImageBlob, setShareImageBlob] = useState<Blob | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false); // New state for loading
 
   const clearImageData = useCallback(() => {
     if (shareImageUrl) {
@@ -21,18 +22,29 @@ export const useShareableImage = ({ lastClick, dayNumber, jackpot }: UseShareabl
   }, [shareImageUrl]);
 
   const generateImage = useCallback(() => {
+    setIsGenerating(true); // Set loading true at the beginning
+
     if (!lastClick) {
-      clearImageData(); // Clear any existing image if lastClick is null
+      clearImageData();
+      setIsGenerating(false); // Set loading false on early return
       return;
     }
 
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      setIsGenerating(false); // Set loading false on early return
+      return;
+    }
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      setIsGenerating(false); // Set loading false on early return
+      return;
+    }
 
     // --- Start of canvas drawing logic (copied from ClickFeedback.tsx) ---
+    // It's good practice to ensure drawing logic itself is not excessively long.
+    // For this subtask, we keep it as is.
     const width = 500;
     const verticalSpacing = 20;
     canvas.width = width;
@@ -111,8 +123,9 @@ export const useShareableImage = ({ lastClick, dayNumber, jackpot }: UseShareabl
         // If blob creation fails, clear existing data
         clearImageData();
       }
+      setIsGenerating(false); // Set loading false after blob processing
     }, 'image/png');
-  }, [lastClick, dayNumber, jackpot, clearImageData, shareImageUrl]); // Added shareImageUrl to deps of generateImage
+  }, [lastClick, dayNumber, jackpot, clearImageData, shareImageUrl]);
 
   // Effect for unmount cleanup
   useEffect(() => {
@@ -128,5 +141,6 @@ export const useShareableImage = ({ lastClick, dayNumber, jackpot }: UseShareabl
     shareImageBlob,
     generateImage,
     clearImageData,
+    isGenerating, // Return isGenerating state
   };
 };
