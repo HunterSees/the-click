@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, memo } from 'react'; // Import memo
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Target, MousePointerClick, Clock, Calendar, Award } from 'lucide-react';
 
@@ -7,7 +7,7 @@ interface HowToPlayModalProps {
   onClose: () => void;
 }
 
-const HowToPlayModal = ({ isOpen, onClose }: HowToPlayModalProps) => {
+const HowToPlayModalComponent = ({ isOpen, onClose }: HowToPlayModalProps) => { // Renamed for memo
   const modalRef = useRef<HTMLDivElement>(null);
   
   // Close when clicking outside the modal
@@ -40,6 +40,52 @@ const HowToPlayModal = ({ isOpen, onClose }: HowToPlayModalProps) => {
     };
   }, [isOpen]);
 
+  // Focus trapping logic
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab' && modalRef.current) {
+        const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusableElements.length === 0) return;
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey) {
+          // Shift + Tab
+          if (document.activeElement === firstElement) {
+            lastElement.focus();
+            event.preventDefault();
+          }
+        } else {
+          // Tab
+          if (document.activeElement === lastElement) {
+            firstElement.focus();
+            event.preventDefault();
+          }
+        }
+      }
+    };
+
+    if (isOpen && modalRef.current) {
+      const focusableElements = modalRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusableElements.length > 0) {
+        focusableElements[0].focus();
+      }
+      document.addEventListener('keydown', handleKeyDown);
+    } else {
+      // This part of the else is effectively handled by the cleanup function if isOpen becomes false
+      // document.removeEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -57,16 +103,20 @@ const HowToPlayModal = ({ isOpen, onClose }: HowToPlayModalProps) => {
             exit={{ scale: 0.9, opacity: 0 }}
             transition={{ type: "spring", damping: 20, stiffness: 300 }}
             className="bg-[#111111] rounded-xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="howToPlayModalTitle"
           >
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold text-white flex items-center">
+                <h2 id="howToPlayModalTitle" className="text-2xl font-bold text-white flex items-center">
                   <Target className="text-[#FF0000] mr-2" size={24} />
                   How to Play
                 </h2>
                 <button 
                   onClick={onClose}
                   className="text-gray-400 hover:text-white transition-colors p-1 rounded-full hover:bg-[#222222]"
+                  aria-label="Close How to Play modal" // Added aria-label for clarity
                 >
                   <X size={20} />
                 </button>
@@ -154,4 +204,4 @@ const HowToPlayModal = ({ isOpen, onClose }: HowToPlayModalProps) => {
   );
 };
 
-export default HowToPlayModal;
+export default memo(HowToPlayModalComponent); // Wrap with memo

@@ -1,13 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react'; // Import useMemo and memo
 import { useGameContext } from '../contexts/GameContext';
 import { onJackpotUpdate, onConnectionChange } from '../services/socketService';
 
-const JackpotDisplay = () => {
+const JackpotDisplayComponent = () => { // Renamed for memo
   const { jackpot, setJackpot } = useGameContext();
-  const [isConnected, setIsConnected] = useState(true);
+  const [isConnected, setIsConnected] = useState(true); // isConnected is not used, consider removing if not planned.
   
-  // Format jackpot to fixed display format (e.g., 0,001,000.00)
-  const formatJackpotForDisplay = () => {
+  const [integerPart, decimalPart] = useMemo(() => {
     // Format with commas and 2 decimal places
     const formatted = jackpot.toLocaleString('en-US', {
       minimumFractionDigits: 2,
@@ -16,27 +15,55 @@ const JackpotDisplay = () => {
     
     // Pad with leading zeros if needed to ensure consistent format
     const parts = formatted.split('.');
-    const integerPart = parts[0];
-    const decimalPart = parts[1];
+    const intPart = parts[0]; // Renamed to avoid conflict with outer scope if any
+    const decPart = parts[1]; // Renamed
     
     // Ensure integer part is at least 7 digits (for 0,000,000)
-    const paddedIntegerPart = integerPart.padStart(7, '0');
+    // If jackpot is 0, parts[0] is "0", padStart(7,'0') is "0000000"
+    // If jackpot is 1234567, parts[0] is "1,234,567" - this needs care.
+    // The original logic assumed integerPart was just digits.
+    // Let's get the raw number before formatting for padding.
+    const rawIntegerPart = Math.floor(jackpot).toString();
+    const paddedRawIntegerPart = rawIntegerPart.padStart(7, '0');
+
+    // Now, re-format this paddedRawIntegerPart with commas.
+    // This is tricky because the original toLocaleString already adds commas.
+    // A simpler approach for consistent length might be to format the number,
+    // then ensure the integer segment before the first comma (or the whole number if no comma)
+    // is padded if the total number of integer digits is less than 7.
+    // However, the original logic was padding the already-formatted string (potentially with commas).
+    // Let's stick to minimal changes to the core formatting logic but ensure it's robust.
+
+    // The original logic for inserting commas into 'paddedIntegerPart' which was already locale-formatted.
+    // This logic is a bit flawed if 'paddedIntegerPart' comes from 'integerPart.padStart(7,'0')'
+    // where integerPart itself can have commas. Example: jackpot=12345.67 -> integerPart="12,345"
+    // paddedIntegerPart = "12,345".padStart(7,'0') -> "012,345" - this seems okay.
+    // Example: jackpot=123.45 -> integerPart="123" -> paddedIntegerPart = "0000123"
+    // The comma insertion loop then correctly formats "0,000,123". This seems to be the intent.
     
-    // Format with commas
+    const prePaddedInteger = intPart.padStart(7, '0'); // Pad the part that might contain commas
+
     let result = '';
     let counter = 0;
-    
-    for (let i = paddedIntegerPart.length - 1; i >= 0; i--) {
-      if (counter === 3 && paddedIntegerPart[i] !== ',') {
+    // Iterate backwards over the potentially comma-containing padded string
+    for (let i = prePaddedInteger.length - 1; i >= 0; i--) {
+      if (prePaddedInteger[i] === ',') continue; // Skip existing commas for counter logic
+
+      if (counter === 3) {
         result = ',' + result;
         counter = 0;
       }
-      result = paddedIntegerPart[i] + result;
+      result = prePaddedInteger[i] + result;
       counter++;
     }
-    
-    return [result, decimalPart];
-  };
+     // The above loop rebuilds the integer string. If jackpot is large (e.g. 1,234,567),
+     // intPart is "1,234,567". prePaddedInteger is "1,234,567".
+     // The loop will strip original commas and re-insert. This is fine.
+     // If jackpot is small, e.g. 123.45, intPart is "123". prePaddedInteger is "0000123".
+     // Loop produces "0,000,123". This is also fine.
+
+    return [result, decPart];
+  }, [jackpot]);
 
   // WebSocket updates for jackpot
   useEffect(() => {
@@ -51,8 +78,6 @@ const JackpotDisplay = () => {
     });
   }, [setJackpot]);
 
-  const [integerPart, decimalPart] = formatJackpotForDisplay();
-  
   // Split the formatted jackpot into individual digits for display
   const jackpotDigits = integerPart.split('');
 
@@ -83,4 +108,4 @@ const JackpotDisplay = () => {
   );
 };
 
-export default JackpotDisplay;
+export default memo(JackpotDisplayComponent); // Wrap with memo

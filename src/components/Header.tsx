@@ -1,15 +1,28 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, memo, lazy, Suspense } from 'react'; // Import memo, lazy, Suspense
 import { HelpCircle, User } from 'lucide-react';
-import HowToPlayModal from './HowToPlayModal';
+// import HowToPlayModal from './HowToPlayModal'; // Original import
 
-const Header = () => {
+const HowToPlayModal = lazy(() => import('./HowToPlayModal')); // Lazy import
+
+const HeaderComponent = () => { // Renamed for memo
   const [isHowToPlayOpen, setIsHowToPlayOpen] = useState(false);
+  const howToPlayButtonRef = useRef<HTMLButtonElement>(null);
+  const prevIsHowToPlayOpenRef = useRef<boolean>(isHowToPlayOpen);
+
+  useEffect(() => {
+    // Check if the modal was open and is now closed
+    if (prevIsHowToPlayOpenRef.current && !isHowToPlayOpen) {
+      howToPlayButtonRef.current?.focus();
+    }
+    // Update the ref with the current state for the next render
+    prevIsHowToPlayOpenRef.current = isHowToPlayOpen;
+  }, [isHowToPlayOpen]);
 
   return (
     <header className="py-4">
       <div className="container mx-auto px-4 flex items-center justify-between">
         <div className="flex-1">
-          <button className="text-white">
+          <button className="text-white" aria-label="Open menu">
             <span className="text-2xl">☰</span>
           </button>
         </div>
@@ -23,7 +36,8 @@ const Header = () => {
         </div>
         
         <div className="flex-1 flex items-center justify-end gap-4">
-          <button 
+          <button
+            ref={howToPlayButtonRef}
             onClick={() => setIsHowToPlayOpen(true)}
             className="text-white"
             aria-label="How to Play"
@@ -33,19 +47,20 @@ const Header = () => {
           
           <button 
             className="text-white"
-            aria-label="User Profile"
+            aria-label="User Profile" // Assuming this might also open a modal one day, could have its own ref
           >
             <User size={24} />
           </button>
         </div>
       </div>
       
-      <HowToPlayModal 
-        isOpen={isHowToPlayOpen} 
-        onClose={() => setIsHowToPlayOpen(false)} 
-      />
+      {isHowToPlayOpen && (
+        <Suspense fallback={<div aria-busy="true" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center text-white z-50">Loading How to Play...</div>}>
+          <HowToPlayModal isOpen={isHowToPlayOpen} onClose={() => setIsHowToPlayOpen(false)} />
+        </Suspense>
+      )}
     </header>
   );
 };
 
-export default Header;
+export default memo(HeaderComponent); // Wrap with memo

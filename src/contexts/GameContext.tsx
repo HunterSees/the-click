@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { formatDateKey, getCurrentDayNumber } from '../utils/dateUtils';
+import { LOCAL_STORAGE_CLICK_ATTEMPT_PREFIX } from '../constants'; // Import the constant
 import { 
   initSocket, 
   registerClick as socketRegisterClick,
@@ -24,31 +25,38 @@ interface GameContextType {
   setHasClicked: (value: boolean) => void; // Added to allow resetting in dev mode
   dayNumber: number;
   registerClick: (x: number, y: number) => void;
+  devMode: boolean;
 }
 
-const GameContext = createContext<GameContextType | undefined>(undefined);
+export const GameContext = createContext<GameContextType | undefined>(undefined);
 
 export function GameProvider({ children }: { children: ReactNode }) {
   const [jackpot, setJackpot] = useState(100.00); // Starting jackpot value of $100
-  const [dayNumber] = useState(getCurrentDayNumber());
+  const [dayNumber, setDayNumber] = useState(getCurrentDayNumber()); // Changed to include setDayNumber
   const [revealedTargetPixel, setRevealedTargetPixel] = useState<{ x: number; y: number } | null>(null);
   const [lastClick, setLastClick] = useState<Click | null>(null);
   const [hasClicked, setHasClicked] = useState(false);
+  const [devMode, setDevMode] = useState(false);
 
-  // Initialize WebSocket connection
+  // Initialize WebSocket connection and set devMode
   useEffect(() => {
     initSocket();
+    const queryParams = new URLSearchParams(window.location.search);
+    setDevMode(queryParams.get('dev') === 'true');
   }, []);
 
   // Check if user has clicked today
   useEffect(() => {
     const todayKey = formatDateKey(new Date());
-    const attemptData = localStorage.getItem(`click_attempt_${todayKey}`);
-    
-    if (attemptData) {
-      const parsedData = JSON.parse(attemptData);
-      setLastClick(parsedData);
-      setHasClicked(true);
+    try {
+      const attemptData = localStorage.getItem(`${LOCAL_STORAGE_CLICK_ATTEMPT_PREFIX}${todayKey}`);
+      if (attemptData) {
+        const parsedData = JSON.parse(attemptData);
+        setLastClick(parsedData);
+        setHasClicked(true);
+      }
+    } catch (error) {
+      console.error("Error reading from localStorage in GameContext:", error);
     }
   }, []);
 
@@ -73,7 +81,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
         
         // Update localStorage with the new distance
         const todayKey = formatDateKey(new Date());
-        localStorage.setItem(`click_attempt_${todayKey}`, JSON.stringify(updatedClick));
+        try {
+          localStorage.setItem(`${LOCAL_STORAGE_CLICK_ATTEMPT_PREFIX}${todayKey}`, JSON.stringify(updatedClick));
+        } catch (error) {
+          console.error("Error writing to localStorage in onClickResult:", error);
+        }
       }
     });
     
@@ -83,11 +95,26 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
   }, [lastClick]);
 
+  // Effect to check for day change and update dayNumber
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      const currentDay = getCurrentDayNumber();
+      if (currentDay !== dayNumber) {
+        setDayNumber(currentDay);
+        // Potentially reset other daily states here if needed, e.g., hasClicked, lastClick
+        // For now, just updating dayNumber as per subtask.
+        // Consider implications: if dayNumber changes, does `hasClicked` for the *new* day need reset?
+        // The current `useEffect` for `hasClicked` checks localStorage based on `formatDateKey(new Date())`,
+        // so it should naturally reflect the new day IF the user interacts or component re-renders.
+        // However, an explicit reset might be cleaner if the day changes while idle.
+        // For this subtask, only dayNumber update is required.
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(intervalId); // Cleanup interval on unmount
+  }, [dayNumber]); // Rerun effect if dayNumber changes (though interval continuously checks)
+
   const registerClick = useCallback((x: number, y: number) => {
-    // Check for dev mode
-    const queryParams = new URLSearchParams(window.location.search);
-    const isDevMode = queryParams.get('dev') === 'true';
-    
     // Create initial click data without distance (server will calculate it)
     const clickData: Click = {
       x,
@@ -100,9 +127,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setHasClicked(true);
     
     // In dev mode, don't persist to localStorage to allow for multiple clicks
-    if (!isDevMode) {
+    if (!devMode) {
       const todayKey = formatDateKey(new Date());
-      localStorage.setItem(`click_attempt_${todayKey}`, JSON.stringify(clickData));
+      try {
+        localStorage.setItem(`${LOCAL_STORAGE_CLICK_ATTEMPT_PREFIX}${todayKey}`, JSON.stringify(clickData));
+      } catch (error) {
+        console.error("Error writing to localStorage in registerClick:", error);
+      }
     }
     
     // Send click to server for processing
@@ -118,6 +149,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setHasClicked, // Expose this for dev mode
     dayNumber,
     registerClick,
+    devMode,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
