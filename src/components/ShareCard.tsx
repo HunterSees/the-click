@@ -7,23 +7,23 @@ interface ShareCardProps {
 }
 
 const ShareCard = ({ onClose }: ShareCardProps) => {
-  const { lastClick, dayNumber, jackpot } = useGameContext();
+  const { clicks, dayNumber, jackpot } = useGameContext();
   const [showPlatformOptions, setShowPlatformOptions] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [shareImage, setShareImage] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  const lastClick = clicks.length > 0 ? clicks[clicks.length - 1] : null;
+
   // Generate share text for fallback and clipboard
   const generateShareText = useCallback(() => {
-    if (!lastClick) return '';
-    
     const formattedJackpot = jackpot.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     });
     
-    return `The Click: Day ${dayNumber}\nDistance: ${Math.round(lastClick.distance)}px\nJackpot: $${formattedJackpot}\ntheclickgame.com`;
-  }, [lastClick, dayNumber, jackpot]);
+    return `The Click: Day ${dayNumber}\nClicks: ${clicks.length}\nJackpot: $${formattedJackpot}\ntheclickgame.com`;
+  }, [clicks, dayNumber, jackpot]);
   
   // Generate image for sharing with dynamic sizing
   const generateShareImage = useCallback(() => {
@@ -35,86 +35,48 @@ const ShareCard = ({ onClose }: ShareCardProps) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Canvas width is fixed
     const width = 500;
-    
-    // Vertical spacing constant
     const verticalSpacing = 20;
     
-    // First set canvas width
     canvas.width = width;
     
-    // Define vertical positions dynamically
-    // Title position
     const titleY = 40;
-    
-    // Grid parameters
     const gridSize = 200;
     const gridX = (width - gridSize) / 2;
-    const gridY = titleY + 30; // Position after title
+    const gridY = titleY + 30;
     
-    // Calculate positions for text elements after the grid
-    const distanceTextY = gridY + gridSize + verticalSpacing * 2;
-    const jackpotTextY = distanceTextY + verticalSpacing * 2;
-    
-    // Website URL is positioned with enough space after jackpot
+    const clicksTextY = gridY + gridSize + verticalSpacing * 2;
+    const jackpotTextY = clicksTextY + verticalSpacing * 2;
     const websiteTextY = jackpotTextY + verticalSpacing * 2;
-    
-    // Calculate total canvas height with padding at the bottom
     const totalHeight = websiteTextY + verticalSpacing * 2;
     
-    // Set canvas height
     canvas.height = totalHeight;
     
-    // Background
-    ctx.fillStyle = '#000000'; // Black background to match app theme
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, width, totalHeight);
     
-    // Title
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 24px Inter, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(`THE CLICK: DAY ${dayNumber}`, width / 2, titleY);
     
-    // Draw grid
-    ctx.fillStyle = '#111111'; // Dark background
+    ctx.fillStyle = '#111111';
     ctx.fillRect(gridX, gridY, gridSize, gridSize);
     
-    // Grid border
-    ctx.strokeStyle = '#ffffff'; // White border to match game
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.strokeRect(gridX, gridY, gridSize, gridSize);
     
-    // Calculate normalized position within grid
-    const normalizedX = Math.min(Math.max(lastClick.x / 1000, 0), 1);
-    const normalizedY = Math.min(Math.max(lastClick.y / 1000, 0), 1);
+    // The marker is no longer drawn on the share card.
     
-    // Draw user's click marker
-    const markerX = gridX + normalizedX * gridSize;
-    const markerY = gridY + normalizedY * gridSize;
-    
-    ctx.fillStyle = '#FF0000'; // Red X to match theme
-    ctx.beginPath();
-    ctx.arc(markerX, markerY, 8, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Draw X in marker
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('X', markerX, markerY);
-    
-    // Reset textBaseline for subsequent text
     ctx.textBaseline = 'top';
     
-    // Distance info
-    const formattedDistance = Math.round(lastClick.distance);
+    // Clicks info
     ctx.fillStyle = '#ffffff';
     ctx.font = '20px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`Distance: ${formattedDistance}px`, width / 2, distanceTextY);
+    ctx.fillText(`Total Clicks: ${clicks.length}`, width / 2, clicksTextY);
     
     // Jackpot info
     const formattedJackpot = jackpot.toLocaleString('en-US', {
@@ -123,15 +85,13 @@ const ShareCard = ({ onClose }: ShareCardProps) => {
     });
     ctx.fillText(`Jackpot: $${formattedJackpot}`, width / 2, jackpotTextY);
     
-    // Website URL
-    ctx.fillStyle = '#FF0000'; // Red to match theme
+    ctx.fillStyle = '#FF0000';
     ctx.font = '18px Inter, sans-serif';
     ctx.fillText('theclickgame.com', width / 2, websiteTextY);
     
-    // Convert to data URL
     const dataUrl = canvas.toDataURL('image/png');
     setShareImage(dataUrl);
-  }, [lastClick, dayNumber, jackpot]);
+  }, [lastClick, clicks, dayNumber, jackpot]);
   
   // Generate share image when component mounts
   useEffect(() => {
@@ -144,32 +104,8 @@ const ShareCard = ({ onClose }: ShareCardProps) => {
     return null;
   }
 
-  const { distance } = lastClick;
-  const formattedDistance = Math.round(distance);
-  
-  // Determine feedback message and color based on distance
-  let feedbackMessage = '';
-  let colorClass = '';
-  
-  if (distance === 0) {
-    feedbackMessage = 'JACKPOT! You found the exact pixel!';
-    colorClass = 'text-yellow-400';
-  } else if (distance < 5) {
-    feedbackMessage = 'Incredibly close!';
-    colorClass = 'text-emerald-400';
-  } else if (distance < 20) {
-    feedbackMessage = 'Very close!';
-    colorClass = 'text-emerald-500';
-  } else if (distance < 50) {
-    feedbackMessage = 'Getting closer!';
-    colorClass = 'text-blue-400';
-  } else if (distance < 100) {
-    feedbackMessage = 'Not bad!';
-    colorClass = 'text-blue-500';
-  } else {
-    feedbackMessage = 'Try again tomorrow!';
-    colorClass = 'text-gray-400';
-  }
+  const feedbackMessage = 'You found the exact pixel!';
+  const colorClass = 'text-yellow-400';
   
   // Utility function to convert data URL to Blob synchronously
   const dataURLtoBlob = (dataURL: string) => {
@@ -305,9 +241,9 @@ const ShareCard = ({ onClose }: ShareCardProps) => {
     <div className="bg-[#111111] rounded-lg p-6 w-full max-w-sm mx-auto border border-[#333333] shadow-2xl">
       <div className="text-center mb-4">
         <h2 className={`text-3xl font-bold ${colorClass} mb-2`}>
-          {formattedDistance} PIXELS AWAY
+          JACKPOT!
         </h2>
-        <p className={`${colorClass} font-medium text-lg`}>{feedbackMessage}</p>
+        <p className={`${colorClass} font-medium text-lg`}>You found the pixel in {clicks.length} clicks!</p>
       </div>
       
       {shareImage && (

@@ -18,9 +18,8 @@ interface Click {
 interface GameContextType {
   jackpot: number;
   setJackpot: (value: number) => void;
-  lastClick: Click | null;
-  hasClicked: boolean;
-  setHasClicked: (value: boolean) => void; // Added to allow resetting in dev mode
+  clicks: Click[];
+  gameWon: boolean;
   dayNumber: number;
   registerClick: (x: number, y: number) => void;
   devMode: boolean;
@@ -31,8 +30,8 @@ export const GameContext = createContext<GameContextType | undefined>(undefined)
 export function GameProvider({ children }: { children: ReactNode }) {
   const [jackpot, setJackpot] = useState(100.00); // Starting jackpot value of $100
   const [dayNumber] = useState(getCurrentDayNumber());
-  const [lastClick, setLastClick] = useState<Click | null>(null);
-  const [hasClicked, setHasClicked] = useState(false);
+  const [clicks, setClicks] = useState<Click[]>([]);
+  const [gameWon, setGameWon] = useState(false);
   const [devMode, setDevMode] = useState(false);
 
   // Initialize WebSocket connection and set devMode
@@ -42,47 +41,31 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setDevMode(queryParams.get('dev') === 'true');
   }, []);
 
-  // Check if user has clicked today
-  useEffect(() => {
-    const todayKey = formatDateKey(new Date());
-    try {
-      const attemptData = localStorage.getItem(`click_attempt_${todayKey}`);
-      if (attemptData) {
-        const parsedData = JSON.parse(attemptData);
-        setLastClick(parsedData);
-        setHasClicked(true);
-      }
-    } catch (error) {
-      console.error("Error reading from localStorage in GameContext:", error);
-    }
-  }, []);
-
-  // Listen for jackpot updates
+  // Listen for jackpot updates and other events
   useEffect(() => {
     onJackpotUpdate((amount) => {
       setJackpot(amount);
     });
 
     // Listen for click results from server
-    onClickResult((distance, success) => { // targetX and targetY removed
-      // Update revealed target
-      // setRevealedTargetPixel({ x: targetX, y: targetY }); // Line removed
-      
-      // Update last click with the server-calculated distance
-      if (lastClick) {
-        const updatedClick = {
-          ...lastClick,
-          distance: distance
-        };
-        setLastClick(updatedClick);
+    onClickResult((distance, success) => {
+      setClicks(prevClicks => {
+        const newClicks = [...prevClicks];
+        const lastClickIndex = newClicks.length - 1;
         
-        // Update localStorage with the new distance
-        const todayKey = formatDateKey(new Date());
-        try {
-          localStorage.setItem(`click_attempt_${todayKey}`, JSON.stringify(updatedClick));
-        } catch (error) {
-          console.error("Error writing to localStorage in onClickResult:", error);
+        if (lastClickIndex >= 0) {
+          newClicks[lastClickIndex] = {
+            ...newClicks[lastClickIndex],
+            distance: distance,
+          };
         }
+
+        return newClicks;
+      });
+
+      // Check for win condition
+      if (distance === 0) {
+        setGameWon(true);
       }
     });
     
@@ -90,10 +73,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
     onConnectionChange((status) => {
       console.log(`Connection status: ${status ? 'connected' : 'disconnected'}`);
     });
-  }, [lastClick]);
+  }, []);
 
   const registerClick = useCallback((x: number, y: number) => {
-    // Create initial click data without distance (server will calculate it)
+    if (gameWon) return; // Don't allow clicks after winning
+
+    // Create initial click data without distance
     const clickData: Click = {
       x,
       y,
@@ -101,29 +86,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
       timestamp: new Date().toISOString(),
     };
     
-    setLastClick(clickData);
-    setHasClicked(true);
-    
-    // In dev mode, don't persist to localStorage to allow for multiple clicks
-    if (!devMode) {
-      const todayKey = formatDateKey(new Date());
-      try {
-        localStorage.setItem(`click_attempt_${todayKey}`, JSON.stringify(clickData));
-      } catch (error) {
-        console.error("Error writing to localStorage in registerClick:", error);
-      }
-    }
+    setClicks(prevClicks => [...prevClicks, clickData]);
     
     // Send click to server for processing
     socketRegisterClick(x, y);
-  }, []);
+  }, [gameWon]);
 
   const value = {
     jackpot,
     setJackpot,
-    lastClick,
-    hasClicked,
-    setHasClicked, // Expose this for dev mode
+    clicks,
+    gameWon,
     dayNumber,
     registerClick,
     devMode,
